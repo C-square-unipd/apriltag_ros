@@ -50,9 +50,11 @@ AprilTagNode::AprilTagNode(rclcpp::NodeOptions options)
     tag_edge_size(declare_parameter<double>("size", 2.0)),
     max_hamming(declare_parameter<int>("max_hamming", 0)),
     z_up(declare_parameter<bool>("z_up", false)),
+    pub_inv(declare_parameter<bool>("pub_inv", true)),
     // topics
     sub_cam(image_transport::create_camera_subscription(this, "image", std::bind(&AprilTagNode::onCamera, this, std::placeholders::_1, std::placeholders::_2), declare_parameter<std::string>("image_transport", "raw"), rmw_qos_profile_sensor_data)),
     pub_tf(create_publisher<tf2_msgs::msg::TFMessage>("/tf", rclcpp::QoS(100))),
+    pub_tf_vio(create_publisher<tf2_msgs::msg::TFMessage>("/tf_vio", rclcpp::QoS(100))),
     pub_detections(create_publisher<apriltag_msgs::msg::AprilTagDetectionArray>("detections", rclcpp::QoS(1)))
 {
     td->quad_decimate = declare_parameter<float>("decimate", 1.0);
@@ -116,6 +118,7 @@ void AprilTagNode::onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_i
     msg_detections.header = msg_img->header;
 
     tf2_msgs::msg::TFMessage tfs;
+    tf2_msgs::msg::TFMessage tfs_vio;
 
     for (int i = 0; i < zarray_size(detections); i++) {
         apriltag_detection_t* det;
@@ -141,16 +144,53 @@ void AprilTagNode::onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_i
 
         // 3D orientation and position
         geometry_msgs::msg::TransformStamped tf;
+        geometry_msgs::msg::TransformStamped tf_vio;
         tf.header = msg_img->header;
         // set child frame name by generic tag name or configured tag name
         tf.child_frame_id = tag_frames.count(det->id) ? tag_frames.at(det->id) : std::string(det->family->name)+":"+std::to_string(det->id);
         getPose(*(det->H), tf.transform, tag_sizes.count(det->id) ? tag_sizes.at(det->id) : tag_edge_size);
+        // prepare vio message
+        tf_vio.header = tf.header;
+        tf_vio.child_frame_id = tf.child_frame_id;
 
+        // compute the inverse to publish to /tf_vio
+        if (pub_inv)
+        {
+            tf_vio.header = tf.header;
+            tf_vio.child_frame_id = tf.child_frame_id;
+
+            tf2::Transform trans(tf2::Quaternion(
+                                     tf.transform.rotation.x,
+                                     tf.transform.rotation.y,
+                                     tf.transform.rotation.z,
+                                     tf.transform.rotation.w),
+                                 tf2::Vector3(
+                                     tf.transform.translation.x,
+                                     tf.transform.translation.y,
+                                     tf.transform.translation.z));
+
+            trans = trans.inverse();
+
+            tf_vio.transform.translation.x = trans.getOrigin().x();
+            tf_vio.transform.translation.y = trans.getOrigin().y();
+            tf_vio.transform.translation.z = trans.getOrigin().z();
+            tf_vio.transform.rotation.x = trans.getRotation().x();
+            tf_vio.transform.rotation.y = trans.getRotation().y();
+            tf_vio.transform.rotation.z = trans.getRotation().z();
+            tf_vio.transform.rotation.w = trans.getRotation().w();
+        }
+        else
+        {
+            tf_vio = tf;
+        }
+
+        tfs_vio.transforms.push_back(tf_vio);
         tfs.transforms.push_back(tf);
     }
 
     pub_detections->publish(msg_detections);
     pub_tf->publish(tfs);
+    pub_tf_vio->publish(tfs_vio);
 
     apriltag_detections_destroy(detections);
 }

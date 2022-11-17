@@ -10,6 +10,11 @@
 
 #include <image_transport/camera_subscriber.hpp>
 
+// Da sistemare, troppi include
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <geometry_msgs/msg/twist.hpp>
 // apriltag
 #include <apriltag.h>
 
@@ -36,6 +41,7 @@ private:
     Mat3 K;
 
     const bool z_up;
+    const bool pub_inv;
 
     // function pointer for tag family creation / destruction
     static const std::map<std::string, apriltag_family_t *(*)(void)> tag_create;
@@ -43,6 +49,7 @@ private:
 
     const image_transport::CameraSubscriber sub_cam;
     const rclcpp::Publisher<tf2_msgs::msg::TFMessage>::SharedPtr pub_tf;
+    const rclcpp::Publisher<tf2_msgs::msg::TFMessage>::SharedPtr pub_tf_vio;
     const rclcpp::Publisher<apriltag_msgs::msg::AprilTagDetectionArray>::SharedPtr pub_detections;
 
     void onCamera(const sensor_msgs::msg::Image::ConstSharedPtr& msg_img, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg_ci);
